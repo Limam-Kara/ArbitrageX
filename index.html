@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>ArbitrageX – Best Quotes</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f3f3f3; margin: 0; padding: 20px; }
+    .card { max-width: 420px; margin: 0 auto 30px; background: #fff; border-radius: 16px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.1); overflow: hidden; }
+    .card-header { background: #5b0025; color: #fff; text-align: center; padding: 12px; font-weight: bold; white-space: pre-line; }
+    .card-body { padding: 16px 20px 20px; text-align: center; }
+    .rate-line { font-size: 14px; margin-bottom: 10px; }
+    .row { display: flex; margin: 6px 0; gap: 6px; }
+    .row input { flex: 2; padding: 8px; border: 1px solid #ddd; border-radius: 8px; outline: none; }
+    .row select { flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 8px; background: #ffe95c; font-weight: bold; }
+    .toggle-row { display: flex; margin-top: 12px; border: 1px solid #ddd; border-radius: 10px; overflow: hidden; font-size: 14px; }
+    .toggle-btn { flex: 1; padding: 8px; cursor: pointer; background: #fff; }
+    .toggle-btn.active { background: #ffe95c; font-weight: bold; }
+    .summary-box { margin-top: 12px; padding: 10px; background: #f5f5f5; border-radius: 10px; font-size: 13px; text-align: left; }
+
+    h2 { margin-top: 30px; font-size: 18px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 10px; background: #fff; }
+    th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; font-size: 13px; }
+    th { background: #f4f4f4; }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <div class="card-header" id="header-rate">
+      Exchange Rate
+    </div>
+    <div class="card-body">
+      <div class="rate-line" id="headline-rate">1 USD = ? MAD</div>
+
+      <!-- Send row -->
+      <div class="row">
+        <input type="number" id="amount" value="100" min="1" />
+        <select id="sendCurrency">
+          <option value="USD|US">USD (US)</option>
+          <option value="EUR|NL">EUR (NL)</option>
+          <option value="EUR|FR">EUR (FR)</option>
+          <option value="GBP|GB">GBP (GB)</option>
+          <option value="CAD|CA">CAD (CA)</option>
+        </select>
+      </div>
+
+      <!-- Receive row -->
+      <div class="row">
+        <input type="text" id="receive" value="?" disabled />
+        <select id="recvCurrency">
+          <option value="MAD|MA">MAD (MA)</option>
+          <option value="PHP|PH">PHP (PH)</option>
+          <option value="BDT|BD">BDT (BD)</option>
+        </select>
+      </div>
+
+      <div class="toggle-row">
+        <div class="toggle-btn active" id="tab-cash">Cash Pickup</div>
+        <div class="toggle-btn" id="tab-bank">Bank Account</div>
+      </div>
+
+      <div class="summary-box">
+        <div id="summary-exchange">Exchange Rate: 1 USD = ? MAD</div>
+        <div id="summary-fee">Transfer fees: ?</div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Dépôt Bancaire</h2>
+  <table id="table-bank">
+    <thead>
+      <tr>
+        <th>Provider</th>
+        <th>Rate</th>
+        <th>Fee</th>
+        <th>Recipient gets</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <h2>Retrait en Espèces</h2>
+  <table id="table-cash">
+    <thead>
+      <tr>
+        <th>Provider</th>
+        <th>Rate</th>
+        <th>Fee</th>
+        <th>Recipient gets</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    const amountInput = document.getElementById('amount');
+    const sendSelect = document.getElementById('sendCurrency');
+    const recvSelect = document.getElementById('recvCurrency');
+    const receiveInput = document.getElementById('receive');
+    const headlineRate = document.getElementById('headline-rate');
+    const headerRate = document.getElementById('header-rate');
+    const summaryExchange = document.getElementById('summary-exchange');
+    const summaryFee = document.getElementById('summary-fee');
+
+    const tabCash = document.getElementById('tab-cash');
+    const tabBank = document.getElementById('tab-bank');
+
+    const tbodyBank = document.querySelector('#table-bank tbody');
+    const tbodyCash = document.querySelector('#table-cash tbody');
+
+    let lastQuotes = [];
+    let currentCategory = 'Retrait en Espèces';
+
+    function getParams() {
+      const [sendCurr, sendCty] = sendSelect.value.split('|');
+      const [recvCurr, recvCty] = recvSelect.value.split('|');
+      return { sendCurr, sendCty, recvCurr, recvCty };
+    }
+
+    async function loadQuotes() {
+      const amount = amountInput.value || 100;
+      const { sendCurr, sendCty, recvCurr, recvCty } = getParams();
+
+      tbodyBank.innerHTML = '<tr><td colspan="4">Loading...</td></tr>';
+      tbodyCash.innerHTML = '<tr><td colspan="4">Loading...</td></tr>';
+
+      try {
+        const url = `/api/quotes?amount=${amount}` +
+                    `&sendCurr=${encodeURIComponent(sendCurr)}` +
+                    `&recvCurr=${encodeURIComponent(recvCurr)}` +
+                    `&sendCty=${encodeURIComponent(sendCty)}` +
+                    `&recvCty=${encodeURIComponent(recvCty)}`;
+
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('API ' + res.status);
+        const data = await res.json();
+        lastQuotes = data;
+
+        renderTables();
+        updateCard();
+      } catch (e) {
+        console.error(e);
+        tbodyBank.innerHTML = '<tr><td colspan="4">Error loading data.</td></tr>';
+        tbodyCash.innerHTML = '<tr><td colspan="4">Error loading data.</td></tr>';
+      }
+    }
+
+    function renderTables() {
+      const bankQuotes = lastQuotes.filter(q => q.category === 'Dépôt Bancaire');
+      const cashQuotes = lastQuotes.filter(q => q.category === 'Retrait en Espèces');
+
+      tbodyBank.innerHTML = '';
+      tbodyCash.innerHTML = '';
+
+      if (!bankQuotes.length) {
+        tbodyBank.innerHTML = '<tr><td colspan="4">No bank offers.</td></tr>';
+      } else {
+        bankQuotes.forEach(q => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${q.provider}</td>
+            <td>${q.rate.toFixed(4)}</td>
+            <td>${q.fee === 0 ? 'FREE' : q.fee.toFixed(2) + ' '}</td>
+            <td>${q.recipient_gets.toFixed(2)}</td>
+          `;
+          tbodyBank.appendChild(tr);
+        });
+      }
+
+      if (!cashQuotes.length) {
+        tbodyCash.innerHTML = '<tr><td colspan="4">No cash offers.</td></tr>';
+      } else {
+        cashQuotes.forEach(q => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${q.provider}</td>
+            <td>${q.rate.toFixed(4)}</td>
+            <td>${q.fee === 0 ? 'FREE' : q.fee.toFixed(2) + ' '}</td>
+            <td>${q.recipient_gets.toFixed(2)}</td>
+          `;
+          tbodyCash.appendChild(tr);
+        });
+      }
+    }
+
+    function updateCard() {
+      const amount = parseFloat(amountInput.value || 100);
+      const { sendCurr, recvCurr } = getParams();
+
+      const quotesForCat = lastQuotes.filter(q => q.category === currentCategory);
+      if (!quotesForCat.length) {
+        headlineRate.textContent = `1 ${sendCurr} = ? ${recvCurr}`;
+        headerRate.textContent = 'Exchange Rate';
+        receiveInput.value = '?';
+        summaryExchange.textContent = `Exchange Rate: 1 ${sendCurr} = ? ${recvCurr}`;
+        summaryFee.textContent = 'Transfer fees: ?';
+        return;
+      }
+
+      const best = quotesForCat.reduce((a, b) =>
+        a.recipient_gets > b.recipient_gets ? a : b
+      );
+
+      const rate = best.rate;
+      const recv = best.recipient_gets;
+      const fee = best.fee;
+
+      headlineRate.textContent = `1 ${sendCurr} = ${rate.toFixed(2)} ${recvCurr}`;
+      headerRate.textContent = `Exchange Rate\n1 ${sendCurr} = ${rate.toFixed(2)} ${recvCurr}`;
+      receiveInput.value = recv.toFixed(2);
+
+      summaryExchange.textContent = `Exchange Rate: 1 ${sendCurr} = ${rate.toFixed(2)} ${recvCurr}`;
+      summaryFee.textContent = `Transfer fees: ${fee.toFixed(2)}`;
+    }
+
+    amountInput.addEventListener('change', loadQuotes);
+    amountInput.addEventListener('keyup', (e) => { if (e.key === 'Enter') loadQuotes(); });
+    sendSelect.addEventListener('change', loadQuotes);
+    recvSelect.addEventListener('change', loadQuotes);
+
+    tabCash.addEventListener('click', () => {
+      currentCategory = 'Retrait en Espèces';
+      tabCash.classList.add('active');
+      tabBank.classList.remove('active');
+      updateCard();
+    });
+
+    tabBank.addEventListener('click', () => {
+      currentCategory = 'Dépôt Bancaire';
+      tabBank.classList.add('active');
+      tabCash.classList.remove('active');
+      updateCard();
+    });
+
+    loadQuotes();
+  </script>
+</body>
+</html>
